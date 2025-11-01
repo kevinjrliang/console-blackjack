@@ -2,6 +2,23 @@ import random
 from typing import List, Optional
 import time
 import os
+import config
+
+# When TEST_MODE is True the code will avoid printing and sleeping which
+# makes automated tests quieter and faster. Tests can enable this by either
+# passing `test_mode=True` to `Game(...)` or by setting
+# `Blackjack.TEST_MODE = True` before creating a Game instance.
+TEST_MODE = False
+
+
+def _print(*args, **kwargs):
+    if not TEST_MODE:
+        print(*args, **kwargs)
+
+
+def _sleep(seconds: float):
+    if not TEST_MODE:
+        time.sleep(seconds)
 
 class Card:
     suit: int
@@ -66,16 +83,16 @@ class Hand:
         aces = 0
         for c in self.cards:
             if c.number == 1:
-                aces += 11
+                aces += 1
             elif c.number > 9:
                 nonAces.append(10)
             else:
                 nonAces.append(c.number)
-        score = sum(nonAces) + aces
+        score = sum(nonAces) + aces * 11
 
         while score > 21 and aces > 0:
-            score -=10
-            aces -= 11
+            score -= 10
+            aces -= 1
 
         self.score = score
 
@@ -111,9 +128,12 @@ class Hand:
 class Deck:
     deck: List[Card]
 
-    def __init__(self) -> None:
-        numbers = [i + 1 for i in range(13)] # numbers
-        self.deck = [Card(suit=s, number=n) for n in numbers for s in range(4)]
+    def __init__(self, num_decks: int = 1) -> None:
+        if num_decks < 1:
+            raise ValueError("num_decks must be >= 1")
+        numbers = [i + 1 for i in range(13)]  # numbers
+        # build `num_decks` worth of cards
+        self.deck = [Card(suit=s, number=n) for _ in range(num_decks) for n in numbers for s in range(4)]
 
     def shuffleDeck(self):
         random.shuffle(self.deck)
@@ -144,9 +164,24 @@ class Game:
 
     num_hands: int
 
-    def __init__(self, hands_to_play: int, total_money: float, minimum_buy: float = 50, starting_bets:List[float] = []) -> None:
+    def __init__(self, hands_to_play: int, total_money: float, minimum_buy: float = 50, starting_bets:List[float] = [], num_decks: int = config.DEFAULT_NUM_DECKS, test_mode: bool = False) -> None:
+        """Initialize a Game.
+
+        Args:
+            hands_to_play: number of player hands.
+            total_money: starting bankroll.
+            minimum_buy: default bet per hand when not provided.
+            starting_bets: optional list of starting bets.
+            num_decks: how many 52-card decks to use in the shoe.
+            test_mode: when True, suppress prints and sleeps (useful for tests).
+        """
+        # enable test mode for the module if requested
+        if test_mode:
+            global TEST_MODE
+            TEST_MODE = True
+
         self.num_hands = hands_to_play
-        self.deck = Deck()
+        self.deck = Deck(num_decks)
         self.total_money = total_money
         self.minimum_buy = minimum_buy
         self.hands = []
@@ -180,7 +215,7 @@ class Game:
             self.dealer.addToHand(d_cards)
 
             if (self.dealer.score == 21):
-                print("Dealer has 21, resetting: " + str(self.dealer))
+                _print("Dealer has 21, resetting: " + str(self.dealer))
                 self.resetDeck()
                 valid = False
 
@@ -193,45 +228,47 @@ class Game:
         self.deck.shuffleDeck()
 
     def gameState(self, current_hand: Optional[int] = None, end_game: bool = False):
-        print("--------------------------------------")
-        print("Dealer's Hand: " + str(self.dealer) + f"{" <-- Dealer's turn" if current_hand is None and not end_game else ""}")
-        print("\n")
-        print("Here are your hands: ")
+        _print("--------------------------------------")
+        dealer_suffix = " <-- Dealer's turn" if current_hand is None and not end_game else ""
+        _print("Dealer's Hand: " + str(self.dealer) + dealer_suffix)
+        _print("\n")
+        _print("Here are your hands: ")
         for i, h in enumerate(self.hands):
             if end_game:
                 if h.status == -1:
-                    print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + " --LOSE--")
+                    _print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + " --LOSE--")
                 elif h.status == 0:
-                    print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + " ==DRAW==")
+                    _print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + " ==DRAW==")
                 elif h.status == 1:
-                    print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + " **WIN**")
+                    _print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + " **WIN**")
                 else:
-                    print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + " ERROR INVALID HAND STATUS")
+                    _print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + " ERROR INVALID HAND STATUS")
             else:
-                print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + f"{" <-- Playing" if current_hand == i else ""}")
-        print("\n")
-        print(f"Total Money: ${self.total_money:.2f}")
-        print("--------------------------------------")
-        print("\n")
+                playing_suffix = " <-- Playing" if current_hand == i else ""
+                _print(f"Hand {i + 1}: " + str(h) + f" - Bet: ${h.bet:.2f}" + playing_suffix)
+        _print("\n")
+        _print(f"Total Money: ${self.total_money:.2f}")
+        _print("--------------------------------------")
+        _print("\n")
 
     def actionPrompt(self, hand_i: int):
         hand = self.hands[hand_i]
         if hand.blackjack:
-            print(f"Blackjack for hand {hand_i + 1}!")
+            _print(f"Blackjack for hand {hand_i + 1}!")
             self.gameState()
             return
         elif hand.split and hand.cards[0].number == 1:
-            print("Split Aces, drawing one card...")
+            _print("Split Aces, drawing one card...")
             self.hit(hand_i)
             self.gameState()
             return
-        print(f"Playing hand #{hand_i + 1}... Please enter the number for action")
+        _print(f"Playing hand #{hand_i + 1}... Please enter the number for action")
 
         actions = ["Hit", "Stay"]
         
 
         if len(hand.cards) == 2:
-            if not hand.split and game.total_money >= hand.bet:
+            if not hand.split and self.total_money >= hand.bet:
                 actions.append("Double")
 
                 if hand.cards[0].number == hand.cards[1].number:
@@ -247,26 +284,26 @@ class Game:
                     self.hit(hand_i)
                     self.gameState(current_hand=hand_i)
                     if hand.bust:
-                        print("Hand busted!")
+                        _print("Hand busted!")
                         break
-                    else: 
-                        print("Hit")
-                    print(f"Playing hand #{hand_i + 1}... Please enter the number for action")
+                    else:
+                        _print("Hit")
+                    _print(f"Playing hand #{hand_i + 1}... Please enter the number for action")
                     user_input = waitForInput("1. Hit | 2. Stay: ", ["1", "2"])
                     if user_input == "2":
-                        print("Stay")
+                        _print("Stay")
             case "2":
-                print("Stay")
+                _print("Stay")
             case "3":
                 self.total_money -= hand.bet
-                hand.bet += bet
+                # double down: match the current bet
+                hand.bet += hand.bet
                 self.hit(hand_i)
                 self.gameState(current_hand=hand_i)
-
                 if hand.bust:
-                    print("Doubled and hand busted!")
-                else: 
-                    print("Doubled")
+                    _print("Doubled and hand busted!")
+                else:
+                    _print("Doubled")
             case "4":
                 
                 self.total_money -= hand.bet
@@ -291,38 +328,54 @@ class Game:
 
 
     def begin_game(self):
-        play = False
-        print("Game Started!")
+        """Run a single round: shuffle, deal, run player turns, then dealer, then settle.
+
+        This now delegates to `play_players()` and `play_dealer()` so those
+        flows can be exercised independently in unit tests.
+        """
+        _print("Game Started!")
         self.deck.shuffleDeck()
-        time.sleep(0.5)
-        print("Dealing Cards...\n")
+        _sleep(0.5)
+        _print("Dealing Cards...\n")
         self.deal()
-        time.sleep(1)
+        _sleep(1)
 
         # Player's turn
+        self.play_players()
+
+        # Dealer's move
+        self.play_dealer()
+
+        _print("Game Results")
+        self.gameState(end_game=True)
+
+    def play_players(self):
+        """Iterate through each player's hand and prompt for actions."""
         i = 0
         while i < len(self.hands):
             h = self.hands[i]
             self.gameState(current_hand=i)
             self.actionPrompt(i)
-            time.sleep(0.5)
+            _sleep(0.5)
             i += 1
-        
-        # Dealer's move
+
+    def play_dealer(self):
+        """Run the dealer's drawing logic and settle all hands against the dealer."""
+        # Reveal dealer cards and draw until stand threshold
         self.dealer.hideDealerCards = False
-        print("Dealer reveals hidden card!")
+        _print("Dealer reveals hidden card!")
         self.gameState()
-        time.sleep(1)
+        _sleep(1)
         while self.dealer.score < 17:
-            print("Dealer Draws...")
-            time.sleep(2)
+            _print("Dealer Draws...")
+            _sleep(2)
             self.hit(-1)
             self.gameState()
 
             if (self.dealer.score > 17):
-                time.sleep(2)
+                _sleep(2)
 
-        # Finalizing game info
+        # Finalize results and adjust bankroll
         for h in self.hands:
             h.finishHand(self.dealer)
             if h.checkHand() == 0:
@@ -333,44 +386,40 @@ class Game:
                 else:
                     self.total_money += h.bet * 2
 
-        print("Game Results")
-        self.gameState(end_game=True)
-
 def waitForInput(message: str, validResponses: List[str]):
+    user_input = input(message)
+    while user_input not in validResponses:
+        _print("\nPlease enter a valid choice.")
         user_input = input(message)
-        while user_input not in validResponses:
-            print("\nPlease enter a valid choice.")
-            user_input = input(message)
-        print("\n")
-        return user_input
+    _print("\n")
+    return user_input
     
+if __name__ == "__main__":
+    os.system('cls' if os.name == 'nt' else 'clear')
+    _print('\n')
+    _print("How much do you want to buy in?")
+    buy_in = float(input())
+    increments = 50.0
+    play = True
+    while play:
+        play = False
+        temp_buy = buy_in
+        _print("How many hands do you want to play? Enter a number from 1 to 5")
+        num_hands = int(waitForInput("Number of hands: ", ["1", "2", "3", "4", "5"]))
+        bets: List[float] = []
+        for i in range(num_hands):
+            valid_bets = [str(int((i + 1) * increments)) for i in range(int(temp_buy // increments))]
+            _print("What would you like to bet for hand " + str(i + 1) + "? Possible bets are: " + ", ".join(valid_bets) + ".")
+            bet = float(waitForInput("Bet: ", valid_bets))
+            bets.append(bet)
+            temp_buy -= bet
+        game = Game(num_hands, buy_in, increments, bets)
+        game.begin_game()
 
-os.system('cls' if os.name == 'nt' else 'clear')
-print('\n')
-print("How much do you want to buy in?")
-buy_in = float(input())
-increments = 50.
-play = True
-while play:
-    play = False
-    temp_buy = buy_in
-    print("How many hands do you want to play? Enter a number from 1 to 5")
-    num_hands = int(waitForInput("Number of hands: ", ["1", "2", "3", "4", "5"]))
-    bets: List[float] = []
-    for i in range(num_hands):
-        valid_bets = [str(int((i + 1) * increments)) for i in range(int(temp_buy // increments))]
-        print(f"What would you like to bet for hand {i + 1}? Possible bets are: {", ".join(valid_bets)}.")
-        bet = float(waitForInput("Bet: ", valid_bets))
-        bets.append(bet)
-        temp_buy -= bet
+        _print("Play again?")
+        user_input = waitForInput("1. Yes | 2. Exit: ", ["1", "2"])
 
-    game = Game(num_hands, buy_in, increments, bets)
-    game.begin_game()
-
-    print("Play again?")
-    user_input = waitForInput("1. Yes | 2. Exit: ", ["1", "2"])
-
-    if user_input == "1":
-        play = True
-        buy_in = game.total_money
-        os.system('cls' if os.name == 'nt' else 'clear')
+        if user_input == "1":
+            play = True
+            buy_in = game.total_money
+            os.system('cls' if os.name == 'nt' else 'clear')
