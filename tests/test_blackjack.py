@@ -9,7 +9,7 @@ These tests avoid any interactive prompts and exercise pure logic only.
 
 import unittest
 import config
-from Blackjack import Card, Hand, Game
+from blackjack import Card, Hand, Game
 class TestDeckAndHand(unittest.TestCase):
     def test_hand_aces_and_blackjack(self):
         # Ace + 9 should count the ace as 11 to make 20
